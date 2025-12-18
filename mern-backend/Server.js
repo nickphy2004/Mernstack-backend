@@ -11,14 +11,44 @@ const crypto = require("crypto");
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// CORS Configuration
+app.use(cors({
+  origin: '*',
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  credentials: true
+}));
+
 app.use(express.json());
 
-mongoose
-  .connect("mongodb://localhost:27017/mern-app")
-  .then(() => console.log("MongoDB connected successfully...."))
-  .catch((err) => console.log("MongoDB connection failed..", err));
+// Use Catalyst's port
+const PORT = process.env.X_ZOHO_CATALYST_LISTEN_PORT || 8000;
 
+// Health check endpoints
+app.get("/", (req, res) => {
+  res.json({ 
+    status: "✅ Backend is running successfully!",
+    message: "API endpoints available",
+    endpoints: ["/Signup", "/Login", "/reqst", "/users", "/payments"]
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.status(200).json({ 
+    status: "ok",
+    mongodb: mongoose.connection.readyState === 1 ? "connected" : "disconnected"
+  });
+});
+
+// MongoDB Connection
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb://localhost:27017/mern-app";
+
+mongoose
+  .connect(MONGODB_URI)
+  .then(() => console.log("✅ MongoDB connected successfully"))
+  .catch((err) => console.error("❌ MongoDB connection failed:", err));
+
+// Schemas
 const regsSchema = new mongoose.Schema({
   name: String,
   phonenumber: String,
@@ -35,7 +65,6 @@ const usersSchema = new mongoose.Schema({
 });
 const usersModel = mongoose.model("User", usersSchema);
 
-// Payment Schema
 const paymentSchema = new mongoose.Schema({
   orderId: String,
   paymentId: String,
@@ -62,6 +91,7 @@ const razorpay = new Razorpay({
   key_secret: process.env.RAZORPAY_KEY_SECRET,
 });
 
+// Middleware
 const authenticateToken = (req, res, next) => {
   const header = req.headers["authorization"];
   const token = header && header.split(" ")[1];
@@ -85,9 +115,20 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
+// ============= ROUTES =============
+
+// Signup Route
 app.post("/Signup", async (req, res) => {
   try {
+    console.log("📝 Signup request received:", { email: req.body.email, name: req.body.name });
     const { name, email, password } = req.body;
+
+    if (!name || !email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "All fields are required",
+      });
+    }
 
     const existingUser = await usersModel.findOne({ email });
     if (existingUser) {
@@ -105,6 +146,8 @@ app.post("/Signup", async (req, res) => {
       password: hashedPassword,
     });
 
+    console.log("✅ User created successfully:", newUser.email);
+
     res.status(201).json({
       success: true,
       message: "Signup successful. Please login.",
@@ -115,7 +158,7 @@ app.post("/Signup", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Signup Error:", err);
+    console.error("❌ Signup Error:", err);
     res.status(500).json({
       success: false,
       message: "Signup failed",
@@ -124,9 +167,18 @@ app.post("/Signup", async (req, res) => {
   }
 });
 
+// Login Route
 app.post("/Login", async (req, res) => {
   try {
+    console.log("🔐 Login request received:", { email: req.body.email });
     const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and password are required",
+      });
+    }
 
     const user = await usersModel.findOne({ email });
     if (!user) {
@@ -151,6 +203,8 @@ app.post("/Login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
+    console.log("✅ Login successful:", user.email);
+
     res.status(200).json({
       success: true,
       message: "Login successful",
@@ -162,7 +216,7 @@ app.post("/Login", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("Login Error:", err);
+    console.error("❌ Login Error:", err);
     res.status(500).json({
       success: false,
       message: "Login failed",
@@ -171,6 +225,7 @@ app.post("/Login", async (req, res) => {
   }
 });
 
+// Web Registration Route
 app.post("/reqst", authenticateToken, async (req, res) => {
   try {
     const { name, phonenumber, email, webType, description } = req.body;
@@ -226,6 +281,7 @@ app.post("/reqst", authenticateToken, async (req, res) => {
   }
 });
 
+// Delete Account Route
 app.delete("/delete-account", authenticateToken, async (req, res) => {
   try {
     const { userId, email } = req.body;
@@ -262,6 +318,7 @@ app.delete("/delete-account", authenticateToken, async (req, res) => {
   }
 });
 
+// Protected Route
 app.get("/protected", authenticateToken, (req, res) => {
   res.json({
     success: true,
@@ -270,18 +327,14 @@ app.get("/protected", authenticateToken, (req, res) => {
   });
 });
 
-async function getDataFromdB() {
-  const users = await usersModel.find();
-
-  return users.map((u) => ({
-    Name: u.name,
-    Email: u.email,
-  }));
-}
-
+// Get Users
 app.get("/users", async (req, res) => {
   try {
-    const data = await getDataFromdB();
+    const users = await usersModel.find();
+    const data = users.map((u) => ({
+      Name: u.name,
+      Email: u.email,
+    }));
     res.json(data);
   } catch (err) {
     console.error("Error fetching users:", err);
@@ -293,22 +346,22 @@ app.get("/users", async (req, res) => {
   }
 });
 
+// ============= PAYMENT ROUTES =============
 
-
+// Create Payment Order
 app.post("/payment/create-order", async (req, res) => {
   try {
     const { amount, currency, userEmail, userName } = req.body;
 
     const options = {
-      amount: Math.round(amount * 100), 
+      amount: Math.round(amount * 100),
       currency: currency || 'INR',
       receipt: `receipt_${Date.now()}`,
       payment_capture: 1,
     };
 
     const order = await razorpay.orders.create(options);
-    
-  
+
     const payment = new paymentModel({
       orderId: order.id,
       amount: amount,
@@ -317,11 +370,11 @@ app.post("/payment/create-order", async (req, res) => {
       userEmail: userEmail,
       userName: userName,
     });
-    
+
     await payment.save();
 
     console.log('Payment order created:', order.id);
-    
+
     res.json({
       success: true,
       id: order.id,
@@ -330,22 +383,24 @@ app.post("/payment/create-order", async (req, res) => {
     });
   } catch (error) {
     console.error('Create order error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to create order',
-      message: error.message 
+      message: error.message
     });
   }
 });
 
+// Verify Payment
 app.post("/payment/verify-payment", async (req, res) => {
   try {
-    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.bod
+    const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
     const sign = razorpay_order_id + '|' + razorpay_payment_id;
     const expectedSign = crypto
       .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
       .update(sign.toString())
-      .digest('hex')
+      .digest('hex');
+
     if (razorpay_signature === expectedSign) {
       console.log('Payment verified successfully');
       console.log('Payment ID:', razorpay_payment_id);
@@ -353,7 +408,7 @@ app.post("/payment/verify-payment", async (req, res) => {
 
       await paymentModel.findOneAndUpdate(
         { orderId: razorpay_order_id },
-        { 
+        {
           status: 'paid',
           paymentId: razorpay_payment_id,
           razorpaySignature: razorpay_signature,
@@ -361,37 +416,36 @@ app.post("/payment/verify-payment", async (req, res) => {
         }
       );
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         message: 'Payment verified successfully',
         paymentId: razorpay_payment_id,
         orderId: razorpay_order_id
       });
     } else {
       console.log('Payment verification failed - Invalid signature');
-      
-      
+
       await paymentModel.findOneAndUpdate(
         { orderId: razorpay_order_id },
         { status: 'failed' }
       );
-      
-      res.status(400).json({ 
-        success: false, 
-        message: 'Invalid signature' 
+
+      res.status(400).json({
+        success: false,
+        message: 'Invalid signature'
       });
     }
   } catch (error) {
     console.error('Verify payment error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Payment verification failed',
-      message: error.message 
+      message: error.message
     });
   }
 });
 
-
+// Get Payment Details
 app.get("/payment/:paymentId", async (req, res) => {
   try {
     const payment = await razorpay.payments.fetch(req.params.paymentId);
@@ -401,14 +455,15 @@ app.get("/payment/:paymentId", async (req, res) => {
     });
   } catch (error) {
     console.error('Fetch payment error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch payment details',
-      message: error.message 
+      message: error.message
     });
   }
 });
 
+// Get All Payments (Admin)
 app.get("/payments", authenticateToken, async (req, res) => {
   try {
     const payments = await paymentModel.find().sort({ createdAt: -1 });
@@ -418,37 +473,46 @@ app.get("/payments", authenticateToken, async (req, res) => {
     });
   } catch (error) {
     console.error('Fetch payments error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch payments',
-      message: error.message 
+      message: error.message
     });
   }
 });
 
-
+// Get User's Payments
 app.get("/my-payments", authenticateToken, async (req, res) => {
   try {
     const payments = await paymentModel
       .find({ userEmail: req.user.email })
       .sort({ createdAt: -1 });
-    
+
     res.json({
       success: true,
       payments: payments
     });
   } catch (error) {
     console.error('Fetch user payments error:', error);
-    res.status(500).json({ 
+    res.status(500).json({
       success: false,
       error: 'Failed to fetch payment history',
-      message: error.message 
+      message: error.message
     });
   }
 });
 
+// Start Server
+app.listen(PORT, () => {
+  console.log(`🚀 Server running on port ${PORT}`);
+  console.log(`📍 Backend URL: https://appsail-50036846539.development.catalystappsail.in`);
+});
 
-const PORT = 8000;
-app.listen(PORT, () =>
-  console.log(`Server running on http://localhost:${PORT}`)
-);
+// Error Handlers
+process.on('unhandledRejection', (err) => {
+  console.error('❌ Unhandled Rejection:', err);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+});

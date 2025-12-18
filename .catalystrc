@@ -1,0 +1,30 @@
+{
+  "defaults": {
+    "project": 1,
+    "env": 1
+  },
+  "actives": {
+    "project": 1,
+    "env": 1
+  },
+  "projects": [
+    {
+      "idx": 1,
+      "id": "26576000000012047",
+      "name": "mern-stack",
+      "domain": {
+        "id": "50036846539",
+        "name": "mern-stack-60061136003.development"
+      },
+      "timezone": "Asia/Kolkata",
+      "env": [
+        {
+          "idx": 1,
+          "id": "60061136003",
+          "name": "Development",
+          "type": 3
+        }
+      ]
+    }
+  ]
+}
