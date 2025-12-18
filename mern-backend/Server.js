@@ -12,12 +12,16 @@ dotenv.config();
 
 const app = express();
 
-// CORS Configuration
+// ✅ FIXED CORS Configuration
 app.use(cors({
-  origin: '*',
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  origin: ['https://mernstack-front-l5fp.vercel.app', 'http://localhost:5173', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   credentials: true
 }));
+
+// Handle preflight requests
+app.options('*', cors());
 
 app.use(express.json());
 
@@ -115,20 +119,10 @@ const authenticateToken = (req, res, next) => {
   });
 };
 
-// ============= ROUTES =============
-
 // Signup Route
 app.post("/Signup", async (req, res) => {
   try {
-    console.log("📝 Signup request received:", { email: req.body.email, name: req.body.name });
     const { name, email, password } = req.body;
-
-    if (!name || !email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "All fields are required",
-      });
-    }
 
     const existingUser = await usersModel.findOne({ email });
     if (existingUser) {
@@ -146,8 +140,6 @@ app.post("/Signup", async (req, res) => {
       password: hashedPassword,
     });
 
-    console.log("✅ User created successfully:", newUser.email);
-
     res.status(201).json({
       success: true,
       message: "Signup successful. Please login.",
@@ -158,7 +150,7 @@ app.post("/Signup", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Signup Error:", err);
+    console.error("Signup Error:", err);
     res.status(500).json({
       success: false,
       message: "Signup failed",
@@ -170,15 +162,7 @@ app.post("/Signup", async (req, res) => {
 // Login Route
 app.post("/Login", async (req, res) => {
   try {
-    console.log("🔐 Login request received:", { email: req.body.email });
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
 
     const user = await usersModel.findOne({ email });
     if (!user) {
@@ -203,8 +187,6 @@ app.post("/Login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    console.log("✅ Login successful:", user.email);
-
     res.status(200).json({
       success: true,
       message: "Login successful",
@@ -216,7 +198,7 @@ app.post("/Login", async (req, res) => {
       },
     });
   } catch (err) {
-    console.error("❌ Login Error:", err);
+    console.error("Login Error:", err);
     res.status(500).json({
       success: false,
       message: "Login failed",
@@ -346,8 +328,6 @@ app.get("/users", async (req, res) => {
   }
 });
 
-// ============= PAYMENT ROUTES =============
-
 // Create Payment Order
 app.post("/payment/create-order", async (req, res) => {
   try {
@@ -463,7 +443,7 @@ app.get("/payment/:paymentId", async (req, res) => {
   }
 });
 
-// Get All Payments (Admin)
+// Get All Payments
 app.get("/payments", authenticateToken, async (req, res) => {
   try {
     const payments = await paymentModel.find().sort({ createdAt: -1 });
